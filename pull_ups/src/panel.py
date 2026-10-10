@@ -7,6 +7,7 @@ once and copied per frame; fixed axes mean the curve fills in without rescaling.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -14,16 +15,21 @@ import numpy as np
 from .reps import rep_value
 from .text import resolve_font
 
-# One palette, shared with the other vision-demos panels.
-BG = "#14161a"
-FG = "#f2f4f7"
-MUTED = "#8b9199"
-GRID = "#2b3038"
-FULL = "#51cf66"      # full range of motion
-PARTIAL = "#ff6b6b"   # cut short
+class Palette(NamedTuple):
+    """The panel's colors as ``"#rrggbb"``, from config's ``PANEL_*`` (BGR there)."""
 
+    bg: str
+    fg: str
+    muted: str
+    grid: str
+    full: str      # full range of motion
+    partial: str   # cut short
+    accent: str    # the displacement line and its playhead
 
-ACCENT = "#28a0ff"   # the displacement line and its playhead, as in deadlift and chin_ups
+    @classmethod
+    def from_cfg(cls, cfg) -> "Palette":
+        return cls(*("#{:02x}{:02x}{:02x}".format(*getattr(cfg, f"PANEL_{name.upper()}")[::-1])
+                     for name in cls._fields))
 
 
 def _rgb(color: str) -> tuple[int, int, int]:
@@ -75,7 +81,7 @@ def _text_width(text: str, px: int, font) -> int:
 
 def _axes_image(width: int, height: int, *, duration: float, ylim, yticks, yfmt,
                 title: str, xlabel: str, ylabel: str, scale: float, font, margin: int,
-                threshold=None, threshold_label: str = "", hlines=()):
+                colors: Palette, threshold=None, threshold_label: str = "", hlines=()):
     """Static axes as BGR, plus the axes' pixel box ``(x0, y0, x1, y1)``, top-down."""
     import matplotlib
     matplotlib.use("Agg")
@@ -99,8 +105,8 @@ def _axes_image(width: int, height: int, *, duration: float, ylim, yticks, yfmt,
         return {"fontproperties": sized}
 
     dpi = max(30.0, 100.0 * scale)
-    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor=BG)
-    ax = fig.add_subplot(111, facecolor=BG)
+    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor=colors.bg)
+    ax = fig.add_subplot(111, facecolor=colors.bg)
     ax.set_xlim(0, duration)
     ax.set_ylim(*ylim)
     ax.set_yticks(yticks)
@@ -110,26 +116,26 @@ def _axes_image(width: int, height: int, *, duration: float, ylim, yticks, yfmt,
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
 
     for y in hlines:
-        ax.axhline(y, color=MUTED, ls="--", lw=1.4, alpha=0.8)
+        ax.axhline(y, color=colors.muted, ls="--", lw=1.4, alpha=0.8)
     if threshold is not None:
-        ax.axhline(threshold, color=MUTED, ls="--", lw=1.4, alpha=0.8)
+        ax.axhline(threshold, color=colors.muted, ls="--", lw=1.4, alpha=0.8)
         if threshold_label:
             # Above the axes: a label beside the line would be drawn over every rep.
             ax.annotate(f"- - {threshold_label}", (1, 1), xycoords="axes fraction",
                         xytext=(0, 4), textcoords="offset points", ha="right", va="bottom",
-                        color=MUTED, **f(12))
+                        color=colors.muted, **f(12))
 
-    ax.set_title(title, color=FG, pad=12, **f(21))
-    ax.set_xlabel(xlabel, color=MUTED, labelpad=4, **f(15))
-    ax.set_ylabel(ylabel, color=MUTED, labelpad=6, **f(15))
-    ax.tick_params(colors=MUTED, labelsize=13)
+    ax.set_title(title, color=colors.fg, pad=12, **f(21))
+    ax.set_xlabel(xlabel, color=colors.muted, labelpad=4, **f(15))
+    ax.set_ylabel(ylabel, color=colors.muted, labelpad=6, **f(15))
+    ax.tick_params(colors=colors.muted, labelsize=13)
     if fp:
         ticks = fp.copy()
         ticks.set_size(13)
         for tick in ax.get_xticklabels() + ax.get_yticklabels():
             tick.set_fontproperties(ticks)
     for spine in ax.spines.values():
-        spine.set_color(GRID)
+        spine.set_color(colors.grid)
 
     # The right edge meets the panel margin, so the axes end where the text does.
     # Wider on the left when there's a y label beside the tick labels.
@@ -193,10 +199,11 @@ class _Strip:
     """One time-series graph: its axes box and a mapping from values to panel pixels."""
 
     def __init__(self, base: np.ndarray, top: int, height: int, n: int, *,
-                 ylim, scale: float, font, margin: int, **axes_kw):
+                 ylim, scale: float, font, margin: int, colors: Palette, **axes_kw):
         width = base.shape[1]
         img, (x0, y0, x1, y1) = _axes_image(width, height, ylim=ylim, scale=scale, font=font,
-                                            margin=margin, **axes_kw)
+                                            margin=margin, colors=colors, **axes_kw)
+        self.colors = colors
         base[top:top + height] = img
         self.box = (x0, top + y0, x1, top + y1)
         x0, _, x1, _ = self.box
@@ -254,13 +261,15 @@ class _Strip:
     def playhead(self, panel, k: int, scale: float) -> None:
         _, y0, _, y1 = self.box
         px = int(self.px[min(max(k - 1, 0), len(self.px) - 1)])
-        cv2.line(panel, (px, y0), (px, y1), _bgr(MUTED), max(1, int(1.5 * scale)), cv2.LINE_AA)
+        cv2.line(panel, (px, y0), (px, y1), _bgr(self.colors.muted), max(1, int(1.5 * scale)),
+                 cv2.LINE_AA)
 
     def dot(self, panel, frame: int, py: float, color: str, scale: float, r: float = 7) -> None:
         if not np.isfinite(py):
             return
         px = int(self.px[min(max(frame, 0), len(self.px) - 1)])
-        cv2.circle(panel, (px, int(py)), int((r + 2) * scale), _bgr(BG), -1, cv2.LINE_AA)
+        cv2.circle(panel, (px, int(py)), int((r + 2) * scale), _bgr(self.colors.bg), -1,
+                   cv2.LINE_AA)
         cv2.circle(panel, (px, int(py)), int(r * scale), _bgr(color), -1, cv2.LINE_AA)
 
 
@@ -272,6 +281,7 @@ class Panel:
         self.w, self.h = width, height
         s = self.s = width / 720
         self.font = resolve_font(cfg.PANEL_FONT, cfg.PANEL_FONT_INDEX)
+        c = self.colors = Palette.from_cfg(cfg)
         self.margin = int(48 * s)
 
         # Per source frame, blanked while the hands are off the bar, smoothed for display.
@@ -298,7 +308,7 @@ class Panel:
         self.room = max(1, span // self.row_gap)
 
         base = np.zeros((height, width, 3), np.uint8)
-        base[:] = _bgr(BG)
+        base[:] = _bgr(c.bg)
 
         # Head above hands, in torso lengths: the quantity the top is graded on, so
         # "clears bar" is the real cutoff. The y-axis marks only the two meaningful
@@ -319,7 +329,7 @@ class Panel:
             yfmt=lambda v, _: min(marks.items(), key=lambda m: abs(m[0] - v))[1],
             duration=n_frames / fps, title="Vertical displacement", xlabel="Time (s)",
             ylabel="Head height", hlines=sorted(marks), scale=s, font=self.font,
-            margin=self.margin)
+            margin=self.margin, colors=c)
         self.height_py = self.strip.y_of(self.height)
 
         # Column centers for REP | ROM | BOTTOM | TOP | PULL, shared by heading and rows.
@@ -334,23 +344,22 @@ class Panel:
             px = int(px * 0.95)
         self.live_px = px
 
-        muted, note_px = _rgb(MUTED), int(cfg.PANEL_NOTE_SIZE * s)
+        muted, note_px = _rgb(c.muted), int(cfg.PANEL_NOTE_SIZE * s)
         y = self.y_rows
         _text(base, [(head, (x, y), note_px, muted, "mm")
                      for head, x in zip(("REP", "ROM", "BOTTOM", "TOP", "PULL"), self.cols)],
               self.font)
         rule_y = self.y_rows + int(18 * s)
-        cv2.line(base, (self.margin, rule_y), (width - self.margin, rule_y), _bgr(GRID),
+        cv2.line(base, (self.margin, rule_y), (width - self.margin, rule_y), _bgr(c.grid),
                  max(1, int(s)))
         _draw_credit(base, self.font, cfg=cfg, scale=s)
         self.base = base
 
-    @staticmethod
-    def verdict_color(rep) -> str:
-        return FULL if rep.complete else PARTIAL
+    def verdict_color(self, rep) -> str:
+        return self.colors.full if rep.complete else self.colors.partial
 
     def render(self, frame: int) -> np.ndarray:
-        s, cfg = self.s, self.cfg
+        s, cfg, c = self.s, self.cfg, self.colors
         panel = self.base.copy()
         done = self.analysis.done_at(frame)
         k = frame + 1
@@ -363,25 +372,25 @@ class Panel:
         items = []
         label_px, label_right = int(18 * s), -1
         for rep in done:
-            c = self.verdict_color(rep)
-            strip.shade(panel, rep.onset_frame, min(rep.end_frame, frame), c)
+            color = self.verdict_color(rep)
+            strip.shade(panel, rep.onset_frame, min(rep.end_frame, frame), color)
             x = int(strip.px[min(rep.peak_frame, len(strip.px) - 1)])
             half = _text_width(str(rep.number), label_px, self.font) // 2
             if x - half > label_right:
-                items.append((str(rep.number), (x, y0 + int(14 * s)), label_px, _rgb(c), "mm"))
+                items.append((str(rep.number), (x, y0 + int(14 * s)), label_px, _rgb(color), "mm"))
                 label_right = x + half + int(6 * s)
-        strip.line(panel, self.height_py, k, ACCENT, thick + max(1, int(s)))
+        strip.line(panel, self.height_py, k, c.accent, thick + max(1, int(s)))
         strip.playhead(panel, k, s)
         for rep in done:
             if rep.rom is None:
                 continue
             g = rep.rom
             strip.dot(panel, rep.valley_frame, self.height_py[rep.valley_frame],
-                      FULL if g.bottom_ok else PARTIAL, s, r=5)
+                      c.full if g.bottom_ok else c.partial, s, r=5)
             strip.dot(panel, rep.peak_frame, self.height_py[rep.peak_frame],
-                      FULL if g.top_ok else PARTIAL, s, r=5)
+                      c.full if g.top_ok else c.partial, s, r=5)
         i = min(frame, len(self.height_py) - 1)
-        strip.dot(panel, i, self.height_py[i], ACCENT, s)
+        strip.dot(panel, i, self.height_py[i], c.accent, s)
 
         # Header: rep count and average pull, then ROM tally and live elbow angle.
         x1 = self.w - self.margin
@@ -389,17 +398,17 @@ class Panel:
         graded = [r for r in done if r.rom is not None]
         full = sum(1 for r in graded if r.complete)
         head_px = int(cfg.PANEL_HEADER_SIZE * s)
-        tally_color = MUTED if not graded else FULL if full == len(graded) else PARTIAL
+        tally_color = c.muted if not graded else c.full if full == len(graded) else c.partial
         items += [
-            (f"Reps: {len(done)}", (self.margin, self.y_reps), head_px, _rgb(FG), "lm"),
+            (f"Reps: {len(done)}", (self.margin, self.y_reps), head_px, _rgb(c.fg), "lm"),
             (f"Avg pull: {np.mean(pulls):.2f}s" if pulls else "Avg pull: —",
-             (x1, self.y_reps), int(head_px * 0.7), _rgb(MUTED), "rm"),
+             (x1, self.y_reps), int(head_px * 0.7), _rgb(c.muted), "rm"),
             (f"Full ROM: {full} / {len(graded)}" if graded else "Full ROM: —",
              (self.margin, self.y_live), self.live_px, _rgb(tally_color), "lm"),
         ]
         elbow = self.mean[min(frame, len(self.mean) - 1)] if len(self.mean) else np.nan
         items.append((f"Elbow {elbow:.0f}°" if np.isfinite(elbow) else "Elbow —",
-                      (x1, self.y_live), int(self.live_px * 0.8), _rgb(FG), "rm"))
+                      (x1, self.y_live), int(self.live_px * 0.8), _rgb(c.fg), "rm"))
 
         # One row per rep after its peak; the newest win if rows run out.
         row_px = int(cfg.PANEL_ROW_SIZE * s)
@@ -409,17 +418,17 @@ class Panel:
 
             def angle(value, ok):
                 if g is None or not np.isfinite(value):
-                    return "—", _rgb(MUTED)
-                return f"{value:.0f}°", _rgb(FG if ok else PARTIAL)
+                    return "—", _rgb(c.muted)
+                return f"{value:.0f}°", _rgb(c.fg if ok else c.partial)
 
-            bottom = angle(g.hang_degrees, g.bottom_ok) if g else ("—", _rgb(MUTED))
-            top = angle(g.peak_degrees, g.top_ok) if g else ("—", _rgb(MUTED))
+            bottom = angle(g.hang_degrees, g.bottom_ok) if g else ("—", _rgb(c.muted))
+            top = angle(g.peak_degrees, g.top_ok) if g else ("—", _rgb(c.muted))
             verdict = (("FULL" if rep.complete else "PARTIAL"), _rgb(self.verdict_color(rep))) \
-                if g else ("—", _rgb(MUTED))
+                if g else ("—", _rgb(c.muted))
             # Partial reps are not timed: a short pull is not a pull-up time.
-            pull = (f"{rep_value(rep, cfg.REP_METRIC):.2f}s", _rgb(FG)) if rep.complete \
-                else ("—", _rgb(MUTED))
-            cells = [(str(rep.number), _rgb(FG)), verdict, bottom, top, pull]
+            pull = (f"{rep_value(rep, cfg.REP_METRIC):.2f}s", _rgb(c.fg)) if rep.complete \
+                else ("—", _rgb(c.muted))
+            cells = [(str(rep.number), _rgb(c.fg)), verdict, bottom, top, pull]
             items += [(text, (x, y), row_px, color, "mm")
                       for (text, color), x in zip(cells, self.cols)]
         _text(panel, items, self.font)

@@ -70,6 +70,9 @@ SKELETON_COLORS = {
 DRAW_ELBOW_ANGLES = True
 ELBOW_ARC_COLOR = (230, 230, 230)   # BGR
 ELBOW_ARC_RADIUS = 24    # px at a 720px-wide frame; scales with the export
+# True colors the arc by each rep's bottom grade (PANEL_FULL or PANEL_PARTIAL)
+# while the athlete is at that bottom, where the hang is measured.
+ELBOW_ARC_GRADE_COLORS = False
 
 # ── Reps ─────────────────────────────────────────────────────────────────────
 # The signal is `hand_y - torso_y`; see how-it-works.md for the method.
@@ -158,6 +161,16 @@ PANEL_ANGLE_SMOOTH_SECONDS = 0.1
 PANEL_FONT = "auto"        # "auto", "opencv" to force Hershey, or a font path
 PANEL_FONT_INDEX = None    # face index inside a .ttc; None uses the default
 
+# Panel colors, BGR. FULL and PARTIAL mark each rep's grade; ACCENT is the
+# displacement line and its playhead.
+PANEL_BG = (26, 22, 20)          # #14161a
+PANEL_FG = (247, 244, 242)       # #f2f4f7
+PANEL_MUTED = (153, 145, 139)    # #8b9199
+PANEL_GRID = (56, 48, 43)        # #2b3038
+PANEL_FULL = (102, 207, 81)      # #51cf66
+PANEL_PARTIAL = (107, 107, 255)  # #ff6b6b
+PANEL_ACCENT = (255, 160, 40)    # #28a0ff
+
 # Credit lines, bottom-right of the panel: ("LABEL", "value") or a plain string.
 #   CREDIT = ["Jeremy Park"]
 #   CREDIT = [("LI", "Jeremy Park, PhD"), ("X", "@jeremyparkphd")]
@@ -169,6 +182,23 @@ CREDIT_MARGIN = 25                    # inset from the right and bottom edges
 CREDIT_COLOR = (180, 180, 180)        # BGR
 CREDIT_LABEL_COLOR = (120, 120, 120)  # the "LI:" / "X:" part
 OUTPUT_CRF = 20                       # x264 quality of the rendered video
+
+# ── Timeline (timeline.png) ──────────────────────────────────────────────────
+# Line and mark colors by role, BGR. "full" and "partial" mark each rep's grade.
+TIMELINE_COLORS = {
+    "full":      (68, 158, 47),    # #2f9e44
+    "partial":   (49, 49, 224),    # #e03131
+    "line":      (246, 109, 47),   # #2f6df6, smoothed displacement and the rep spans
+    "raw":       (214, 206, 201),  # #c9ced6
+    "interval":  (171, 100, 24),   # #1864ab, each rep's bracket and its seconds
+    "peak":      (12, 89, 232),    # #e8590c, each rep's top and its time
+    "elbow":     (196, 61, 95),    # #5f3dc4, the graded mean elbow angle
+    "clearance": (62, 138, 43),    # #2b8a3e, head above hands
+    "cutoff":    (42, 42, 201),    # #c92a2a, what a full rep must reach
+}
+# None keeps matplotlib's white figure. A dict of "background", "text" and
+# "grid" colors (BGR) restyles it, e.g. dark to sit beside the video.
+TIMELINE_FIGURE = None
 
 # ── Output ───────────────────────────────────────────────────────────────────
 OUTPUT_DIR = DATA_DIR / "output"

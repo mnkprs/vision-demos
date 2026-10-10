@@ -12,10 +12,6 @@ from .panel import Panel
 from .skeleton import KPT_NAMES, draw_person, visible_parts
 from .video import VideoInfo
 
-# Verdict colors, shared by every axis in timeline.png so green means the same everywhere.
-GOOD_C = "#2f9e44"
-BAD_C = "#e03131"
-
 _INDEX = {name: i for i, name in enumerate(KPT_NAMES)}
 
 _PROGRESS_COLUMNS = (
@@ -61,6 +57,26 @@ def _draw_elbows(frame, person, *, arms, radius: int, stroke: int, color) -> Non
         cv2.ellipse(frame, c, (radius, radius), 0, a, b, color, stroke, cv2.LINE_AA)
 
 
+def _arc_colors(analysis, n_frames: int, fps: float, cfg) -> dict:
+    """Frame -> elbow arc color, for ``cfg.ELBOW_ARC_GRADE_COLORS``.
+
+    Around each graded rep's valley, through the dead hang to its onset, the arc
+    takes that rep's bottom grade; elsewhere ``cfg.ELBOW_ARC_COLOR`` applies.
+    """
+    if not cfg.ELBOW_ARC_GRADE_COLORS:
+        return {}
+    hold = max(1, round(0.25 * fps))   # long enough to read even without a hang
+    colors = {}
+    for rep in analysis.reps:
+        if rep.rom is None:
+            continue
+        color = cfg.PANEL_FULL if rep.rom.bottom_ok else cfg.PANEL_PARTIAL
+        last = min(n_frames - 1, max(rep.onset_frame, rep.valley_frame + hold))
+        for i in range(max(0, rep.valley_frame - hold), last + 1):
+            colors[i] = color
+    return colors
+
+
 def _person_at(by_index: dict, i: int, hold: int):
     """This frame's athlete, or the last one seen within *hold* frames."""
     for j in range(i, max(-1, i - hold - 1), -1):
@@ -88,6 +104,7 @@ def render(info: VideoInfo, *, by_index, analysis, n_frames: int, fps: float, ds
     radius = max(1, round(cfg.POINT_RADIUS * scale))
     arc = max(4, round(cfg.ELBOW_ARC_RADIUS * scale))
     stroke = max(1, round(2 * scale))
+    arc_colors = _arc_colors(analysis, n_frames, fps, cfg)
 
     cap = cv2.VideoCapture(str(info.path))
     writer = cv2.VideoWriter(str(dst), cv2.VideoWriter_fourcc(*"mp4v"), info.fps,
@@ -115,7 +132,8 @@ def render(info: VideoInfo, *, by_index, analysis, n_frames: int, fps: float, ds
                                 colors=cfg.SKELETON_COLORS)
                     if cfg.DRAW_ELBOW_ANGLES:
                         _draw_elbows(frame, person, arms=cfg.ARM_JOINTS, radius=arc,
-                                     stroke=stroke, color=cfg.ELBOW_ARC_COLOR)
+                                     stroke=stroke,
+                                     color=arc_colors.get(i, cfg.ELBOW_ARC_COLOR))
                     posed += 1
 
                 writer.write(np.hstack([frame, panel.render(i)]))
@@ -128,6 +146,16 @@ def render(info: VideoInfo, *, by_index, analysis, n_frames: int, fps: float, ds
             "output": f"{out_w}x{info.height}"}
 
 
+def _figure_rc(figure) -> dict:
+    """matplotlib rc for ``cfg.TIMELINE_FIGURE``; empty (matplotlib's own look) for None."""
+    if not figure:
+        return {}
+    bg, text, grid = (_hex(figure[k]) for k in ("background", "text", "grid"))
+    return {"figure.facecolor": bg, "axes.facecolor": bg, "savefig.facecolor": bg,
+            "text.color": text, "axes.labelcolor": text, "xtick.color": text,
+            "ytick.color": text, "axes.edgecolor": grid, "grid.color": grid}
+
+
 def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
     """Displacement with each rep's measured interval, plus the two ROM traces and cutoffs.
 
@@ -137,9 +165,21 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    with plt.rc_context(_figure_rc(cfg.TIMELINE_FIGURE)):
+        _plot_timeline(analysis, dst, cfg=cfg, title=title)
+
+
+def _plot_timeline(analysis, dst: Path, *, cfg, title: str) -> None:
+    import matplotlib.pyplot as plt
+
     from .reps import phase_label, rep_value
 
     metric = cfg.REP_METRIC
+    # Verdict colors, shared by every axis so a grade's color means the same everywhere.
+    c = {role: _hex(bgr) for role, bgr in cfg.TIMELINE_COLORS.items()}
+    good, bad = c["full"], c["partial"]
+    # A dark figure's grid is its own color; a light one's is matplotlib's, faded.
+    grid_alpha = 1.0 if cfg.TIMELINE_FIGURE else 0.25
 
     def span(rep):
         """(start, end) of the interval this rep's number actually measures."""
@@ -160,11 +200,11 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
         return int(np.argmin(np.abs(t - time)))
 
     def verdict_color(rep) -> str:
-        return GOOD_C if rep.complete else BAD_C
+        return good if rep.complete else bad
 
-    ax.plot(t, analysis.raw - analysis.baseline, color="#c9ced6", lw=1,
+    ax.plot(t, analysis.raw - analysis.baseline, color=c["raw"], lw=1,
             label="raw (torso mean)", zorder=1)
-    ax.plot(t, analysis.displacement, color="#2f6df6", lw=2.2, label="smoothed", zorder=3)
+    ax.plot(t, analysis.displacement, color=c["line"], lw=2.2, label="smoothed", zorder=3)
     ax.axhline(0, color="#8a8f98", ls="--", lw=1.2, zorder=2,
                label="relative zero (hanging)")
 
@@ -176,17 +216,17 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
         a, b = span(rep)
         value = rep_value(rep, metric)
 
-        ax.axvspan(a, b, color="#2f6df6", alpha=0.13, zorder=0,
+        ax.axvspan(a, b, color=c["line"], alpha=0.13, zorder=0,
                    label=phase_label(metric) if i == 0 else None)
         for x in (a, b):
-            ax.axvline(x, color="#2f6df6", ls=":", lw=1.1, alpha=0.65, zorder=2)
+            ax.axvline(x, color=c["line"], ls=":", lw=1.1, alpha=0.65, zorder=2)
 
         # The measured interval as a bracket.
         ax.annotate("", xy=(b, bar), xytext=(a, bar),
-                    arrowprops=dict(arrowstyle="<|-|>", color="#1864ab", lw=1.6,
+                    arrowprops=dict(arrowstyle="<|-|>", color=c["interval"], lw=1.6,
                                     shrinkA=0, shrinkB=0))
         ax.text((a + b) / 2, bar + top * 0.025, f"{value:.2f}s", ha="center",
-                va="bottom", fontsize=11, fontweight="bold", color="#1864ab")
+                va="bottom", fontsize=11, fontweight="bold", color=c["interval"])
 
         # When timing starts at onset, show the excluded dead hang before it.
         if metric == "moving" and a - rep.valley_time > 1.5 / 30:
@@ -199,7 +239,7 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
                         xytext=(0, -30), ha="center", fontsize=8.5, color="#868e96")
 
         a_y = analysis.displacement[at(a)]
-        ax.plot(b, rep.height, "o", color="#e8590c", ms=8, zorder=4)
+        ax.plot(b, rep.height, "o", color=c["peak"], ms=8, zorder=4)
         ax.plot(a, a_y, "o", color="#8a8f98", ms=6, zorder=4)
 
         # The rep number carries its verdict mark.
@@ -210,12 +250,12 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
 
         # Both endpoints stamped, so the bracket above is checkable by hand.
         ax.annotate(f"{b:.2f}s", (b, rep.height), textcoords="offset points",
-                    xytext=(0, 13), ha="center", fontsize=9.5, color="#e8590c")
+                    xytext=(0, 13), ha="center", fontsize=9.5, color=c["peak"])
         ax.annotate(f"{a:.2f}s", (a, a_y), textcoords="offset points",
                     xytext=(0, -17), ha="center", fontsize=9.5, color="#5c6470")
 
     ax.set_ylabel("vertical displacement\n(fraction of frame height)")
-    ax.grid(alpha=0.25)
+    ax.grid(alpha=grid_alpha)
     # Above the axes, not inside them: any in-plot corner eventually sits on a rep.
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.015), ncol=5,
               fontsize=9, frameon=False)
@@ -229,7 +269,7 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
     def held(series):
         return np.where(on_bar, series, np.nan)
 
-    def threshold(axis, y, text, *, color="#c92a2a", style="--", width=1.2):
+    def threshold(axis, y, text, *, color=c["cutoff"], style="--", width=1.2):
         """A cutoff line, labelled in the legend row above the axis.
 
         In-plot labels would overlap the data or each other; above the axis is always clear.
@@ -246,7 +286,7 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
     arm_colors = (_hex(cfg.SKELETON_COLORS["left_arm"]), _hex(cfg.SKELETON_COLORS["right_arm"]))
     for arm, color, name in zip(analysis.arms, arm_colors, ("Left", "Right")):
         ax2.plot(t, held(arm), color=color, lw=1.0, alpha=0.7, label=f"{name.lower()} arm")
-    ax2.plot(t, held(analysis.elbow), color="#5f3dc4", lw=1.6, label="mean (graded)")
+    ax2.plot(t, held(analysis.elbow), color=c["elbow"], lw=1.6, label="mean (graded)")
     # The cutoff reps were held to (profile if calibrated, else this clip's). The
     # absolute floor applies only when uncalibrated, so it is only drawn then.
     required = analysis.hang_required
@@ -261,30 +301,30 @@ def plot_timeline(analysis, dst: Path, *, cfg, title: str = "") -> None:
         i = at(rep.valley_time)
         if np.isfinite(analysis.elbow[i]):
             ax2.plot(rep.valley_time, analysis.elbow[i], "o", ms=7, zorder=4,
-                     color=GOOD_C if rep.rom is None or rep.rom.bottom_ok else BAD_C)
+                     color=good if rep.rom is None or rep.rom.bottom_ok else bad)
     ax2.set_ylabel("elbow angle\n(degrees)")
     ax2.invert_yaxis()   # as on the panel: the line rises as the body does
     label_row(ax2)
-    ax2.grid(alpha=0.25)
+    ax2.grid(alpha=grid_alpha)
 
     # Top of the rep: head clearance, in torso lengths so camera distance cancels out.
     clearance = held(analysis.clearance)
     needs = (analysis.clearance_required if np.isfinite(analysis.clearance_required)
              else cfg.ROM_CLEARANCE_TORSO_FRACTION)
-    ax3.plot(t, clearance, color="#2b8a3e", lw=1.6)
+    ax3.plot(t, clearance, color=c["clearance"], lw=1.6)
     threshold(ax3, needs, f"clears the bar, {source} ({needs:.2f})")
     ax3.axhline(0, color="#adb5bd", ls=":", lw=1.0, zorder=1)
     ax3.fill_between(t, needs, clearance, where=clearance > needs,
-                     color="#2b8a3e", alpha=0.18)
+                     color=c["clearance"], alpha=0.18)
     for rep in analysis.reps:
         i = at(rep.peak_time)
         if np.isfinite(analysis.clearance[i]):
             ax3.plot(rep.peak_time, analysis.clearance[i], "o", ms=7, zorder=4,
-                     color=GOOD_C if rep.rom is None or rep.rom.top_ok else BAD_C)
+                     color=good if rep.rom is None or rep.rom.top_ok else bad)
     ax3.set_ylabel("head above hands\n(torso lengths)")
     ax3.set_xlabel("time (s)")
     label_row(ax3)
-    ax3.grid(alpha=0.25)
+    ax3.grid(alpha=grid_alpha)
 
     fig.subplots_adjust(left=0.09, right=0.98, top=0.89, bottom=0.07, hspace=0.30)
     fig.savefig(dst, dpi=150)
