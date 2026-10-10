@@ -1181,6 +1181,8 @@ def deliver(run: Run, comparison: compare.Comparison | None, *, step: int,
                   "found": run.ground is not None,
                   "clearance": cfg.FLOOR_CLEARANCE, "cost_usd": run.floor_cost}
                  if cfg.DETECT_FLOOR else None,
+        "recover": {"model": cfg.HOLD_MODEL, "cost_usd": run.recover_cost}
+                   if cfg.RECOVER_MISSED_HOLDS else None,
         "utilization": util.as_dict(),
         "comparison": None if attempt is None else {
             "reference": comparison.reference,
