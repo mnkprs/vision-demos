@@ -31,6 +31,22 @@ SIDE_COLORS = {
     "H": (200, 80, 220),   # magenta, head
 }
 
+# Which part of the body each non-face edge belongs to, for per-limb coloring
+# (config's SKELETON_COLORS), as in pull_ups.
+_TORSO = frozenset({5, 6, 11, 12})
+_PARTS = {
+    "left_arm": frozenset({5, 7, 9}), "right_arm": frozenset({6, 8, 10}),
+    "left_leg": frozenset({11, 13, 15}), "right_leg": frozenset({12, 14, 16}),
+}
+
+
+def edge_part(a: int, b: int) -> str:
+    """``"torso"``, ``"left_arm"``, ``"right_arm"``, ``"left_leg"`` or ``"right_leg"``."""
+    if a in _TORSO and b in _TORSO:
+        return "torso"
+    return next((name for name, joints in _PARTS.items() if a in joints and b in joints),
+                "torso")
+
 TRACK_COLORS = [
     (66, 135, 245), (245, 176, 66), (66, 245, 152), (245, 66, 200),
     (245, 245, 66), (140, 66, 245), (66, 245, 245), (245, 66, 66),
@@ -66,12 +82,16 @@ def draw_person(
     draw_bbox: bool = True,
     draw_label: bool = False,
     bbox_color: tuple[int, int, int] = (255, 160, 40),
+    colors: dict | None = None,
 ):
     """Draw one person. Coordinates arrive normalized to [0, 1].
 
     They are normalized against the frame the model was shown (downscaled to a
     2048px long edge), but that scaling is uniform, so multiplying by this
     frame's full width/height is exact rather than approximate.
+
+    *colors* maps each body part (see ``edge_part``) to a BGR color; None keeps
+    the per-side colors and rings each joint in its track's color.
     """
     pts = [(int(round(x * width)), int(round(y * height))) for x, y in person.get("kpts_xy", [])]
 
@@ -97,12 +117,15 @@ def draw_person(
 
     for a, b, side in edges:
         if ok(a) and ok(b):
-            cv2.line(img, pts[a], pts[b], SIDE_COLORS[side], thickness, cv2.LINE_AA)
+            color = colors[edge_part(a, b)] if colors else SIDE_COLORS[side]
+            cv2.line(img, pts[a], pts[b], color, thickness, cv2.LINE_AA)
 
+    # White joints; with per-limb colors a dark ring keeps them visible on light backgrounds.
+    ring = (20, 22, 26) if colors else tint
     for i in range(len(pts)):
         if ok(i):
             cv2.circle(img, pts[i], radius, (255, 255, 255), -1, cv2.LINE_AA)
-            cv2.circle(img, pts[i], radius, tint, 1, cv2.LINE_AA)
+            cv2.circle(img, pts[i], radius + (1 if colors else 0), ring, 1, cv2.LINE_AA)
 
     return img
 

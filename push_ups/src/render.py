@@ -107,7 +107,7 @@ def render(
                         edges=edges, points=points,
                         thickness=thickness, radius=radius,
                         held=held, draw_bbox=cfg.DRAW_BBOX, draw_label=cfg.DRAW_TRACK_LABEL,
-                        bbox_color=cfg.BBOX_COLOR,
+                        bbox_color=cfg.BBOX_COLOR, colors=cfg.SKELETON_COLORS,
                     )
 
                 if persons:

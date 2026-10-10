@@ -47,6 +47,12 @@ LINE_THICKNESS = 3            # px at a 720px-wide frame; scales with the export
 POINT_RADIUS = 4
 OUTPUT_CRF = 20
 
+# Skeleton color per limb, BGR, keyed like pull_ups':
+#   {"left_arm": ..., "right_arm": ..., "left_leg": ..., "right_leg": ..., "torso": ...}
+# None keeps the per-side colors (left cyan, right orange, torso green) and rings
+# each joint in its track's color.
+SKELETON_COLORS = None
+
 # ── Plank gate ───────────────────────────────────────────────────────────────
 # Only frames in a plank say anything about push-ups: standing before the set or
 # walking off after it would otherwise read as a huge rep. The torso (mid-shoulder
