@@ -201,6 +201,11 @@ BACK_WINDOW_FRACTION = 0.5
 BACK_SMOOTH_SECONDS = 0.15
 
 # ── Side panel ───────────────────────────────────────────────────────────────
+# The clip on the left, an equal-width stats panel on the right. False writes
+# the overlaid clip alone, at its own size (skeleton, hinge arc, plate, bar
+# path and the read box, nothing beside it); timeline.png and the JSON files
+# are unchanged.
+SIDE_PANEL = True
 PANEL_HEADER_SIZE = 44     # px at a 720px-wide panel; scales with the output
 PANEL_VERDICT_SIZE = 34    # the "Back: ..." line; shrinks further if it would meet the %
 PANEL_ROW_SIZE = 26        # the per-rep rows

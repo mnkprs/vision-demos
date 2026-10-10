@@ -144,9 +144,23 @@ def _person_at(by_index: dict, i: int, hold: int):
 
 def render(info: VideoInfo, *, by_index, plate, signal, analysis, crops: dict, dst: Path,
            cfg, console) -> dict:
-    """Write the clip, overlaid, beside its panel: same height, double the width."""
-    panel = Panel(signal, analysis, info.width, info.height, cfg=cfg)
-    out_w = info.width * 2
+    """Write the clip, overlaid, beside its panel: same height, double the width.
+
+    With ``cfg.SIDE_PANEL`` off, the overlaid clip alone at its own size.
+    """
+    if cfg.SIDE_PANEL:
+        panel = Panel(signal, analysis, info.width, info.height, cfg=cfg)
+        out_w = info.width * 2
+        p_at = panel.p_at
+    else:
+        # No panel to agree with, but the read box keeps the color it would show:
+        # the same display smoothing of the same signal.
+        panel = None
+        out_w = info.width
+        p_display = display_smooth(signal.per_frame, signal.fps, cfg.PANEL_P_SMOOTH_SECONDS)
+
+        def p_at(frame: int) -> float:
+            return float(p_display[min(frame, len(p_display) - 1)])
 
     edges, points = visible_parts(cfg.DRAW_FACE)
     if cfg.DRAW_JOINTS:
@@ -201,7 +215,7 @@ def render(info: VideoInfo, *, by_index, plate, signal, analysis, crops: dict, d
 
                 if len(crop_keys):
                     x0, y0, x1, y1 = crops[int(crop_keys[np.argmin(np.abs(crop_keys - i))])]
-                    p = panel.p_at(i)   # the box agrees with the panel beside it
+                    p = p_at(i)   # the box agrees with the panel beside it
                     color = (107, 107, 255) if p > cfg.THRESHOLD else (102, 207, 81)
                     cv2.rectangle(frame, (int(x0 * w), int(y0 * h)), (int(x1 * w), int(y1 * h)),
                                   color, stroke, cv2.LINE_AA)
@@ -219,7 +233,7 @@ def render(info: VideoInfo, *, by_index, plate, signal, analysis, crops: dict, d
                                     cfg=cfg, scale=scale, font=font)
                     posed += 1
 
-                writer.write(np.hstack([frame, panel.render(i)]))
+                writer.write(frame if panel is None else np.hstack([frame, panel.render(i)]))
                 written += 1
                 progress.update(task, advance=1)
     finally:
