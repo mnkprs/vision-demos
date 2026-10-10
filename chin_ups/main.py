@@ -41,8 +41,11 @@ def kv(pairs: dict, title: str | None = None) -> None:
 
 
 def rel(path: Path) -> Path:
-    """Project-relative path, for console output."""
-    return path.relative_to(cfg.PROJECT_DIR)
+    """Project-relative path for console output; absolute when outside the project."""
+    try:
+        return path.relative_to(cfg.PROJECT_DIR)
+    except ValueError:
+        return path
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
