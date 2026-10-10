@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
 
-from .panel import Panel
+from .panel import Panel, hex_from_bgr
 from .skeleton import KPT_NAMES, draw_person, visible_parts
 from .video import VideoInfo
 
@@ -21,10 +21,6 @@ _PROGRESS_COLUMNS = (
     TextColumn("{task.completed}/{task.total} frames"),
     TimeElapsedColumn(),
 )
-
-
-def _hex(bgr) -> str:
-    return "#{:02x}{:02x}{:02x}".format(*tuple(bgr)[::-1])
 
 
 def _draw_elbows(frame, person, *, arms, radius: int, stroke: int, color) -> None:
@@ -150,7 +146,7 @@ def _figure_rc(figure) -> dict:
     """matplotlib rc for ``cfg.TIMELINE_FIGURE``; empty (matplotlib's own look) for None."""
     if not figure:
         return {}
-    bg, text, grid = (_hex(figure[k]) for k in ("background", "text", "grid"))
+    bg, text, grid = (hex_from_bgr(figure[k]) for k in ("background", "text", "grid"))
     return {"figure.facecolor": bg, "axes.facecolor": bg, "savefig.facecolor": bg,
             "text.color": text, "axes.labelcolor": text, "xtick.color": text,
             "ytick.color": text, "axes.edgecolor": grid, "grid.color": grid}
@@ -176,7 +172,7 @@ def _plot_timeline(analysis, dst: Path, *, cfg, title: str) -> None:
 
     metric = cfg.REP_METRIC
     # Verdict colors, shared by every axis so a grade's color means the same everywhere.
-    c = {role: _hex(bgr) for role, bgr in cfg.TIMELINE_COLORS.items()}
+    c = {role: hex_from_bgr(bgr) for role, bgr in cfg.TIMELINE_COLORS.items()}
     good, bad = c["full"], c["partial"]
     # A dark figure's grid is its own color; a light one's is matplotlib's, faded.
     grid_alpha = 1.0 if cfg.TIMELINE_FIGURE else 0.25
@@ -236,7 +232,7 @@ def _plot_timeline(analysis, dst: Path, *, cfg, title: str) -> None:
                     "o", color="#adb5bd", ms=5, zorder=4)
             ax.annotate(f"hang {a - rep.valley_time:.2f}s",
                         ((rep.valley_time + a) / 2, 0), textcoords="offset points",
-                        xytext=(0, -30), ha="center", fontsize=8.5, color="#868e96")
+                        xytext=(0, -30), ha="center", fontsize=8.5, color=c["label"])
 
         a_y = analysis.displacement[at(a)]
         ax.plot(b, rep.height, "o", color=c["peak"], ms=8, zorder=4)
@@ -252,7 +248,7 @@ def _plot_timeline(analysis, dst: Path, *, cfg, title: str) -> None:
         ax.annotate(f"{b:.2f}s", (b, rep.height), textcoords="offset points",
                     xytext=(0, 13), ha="center", fontsize=9.5, color=c["peak"])
         ax.annotate(f"{a:.2f}s", (a, a_y), textcoords="offset points",
-                    xytext=(0, -17), ha="center", fontsize=9.5, color="#5c6470")
+                    xytext=(0, -17), ha="center", fontsize=9.5, color=c["onset"])
 
     ax.set_ylabel("vertical displacement\n(fraction of frame height)")
     ax.grid(alpha=grid_alpha)
@@ -283,7 +279,7 @@ def _plot_timeline(analysis, dst: Path, *, cfg, title: str) -> None:
 
     # Bottom of the rep: elbow angle, graded at each valley. Each arm faintly in
     # its skeleton color; the grade reads their mean.
-    arm_colors = (_hex(cfg.SKELETON_COLORS["left_arm"]), _hex(cfg.SKELETON_COLORS["right_arm"]))
+    arm_colors = (hex_from_bgr(cfg.SKELETON_COLORS["left_arm"]), hex_from_bgr(cfg.SKELETON_COLORS["right_arm"]))
     for arm, color, name in zip(analysis.arms, arm_colors, ("Left", "Right")):
         ax2.plot(t, held(arm), color=color, lw=1.0, alpha=0.7, label=f"{name.lower()} arm")
     ax2.plot(t, held(analysis.elbow), color=c["elbow"], lw=1.6, label="mean (graded)")
@@ -296,7 +292,7 @@ def _plot_timeline(analysis, dst: Path, *, cfg, title: str) -> None:
         if not analysis.calibrated and required > cfg.ROM_HANG_ELBOW_DEGREES + 0.5:
             threshold(ax2, cfg.ROM_HANG_ELBOW_DEGREES,
                       f"floor ({cfg.ROM_HANG_ELBOW_DEGREES:.0f}\u00b0)",
-                      color="#868e96", style=":", width=1.0)
+                      color=c["label"], style=":", width=1.0)
     for rep in analysis.reps:
         i = at(rep.valley_time)
         if np.isfinite(analysis.elbow[i]):

@@ -162,7 +162,7 @@ PANEL_FONT = "auto"        # "auto", "opencv" to force Hershey, or a font path
 PANEL_FONT_INDEX = None    # face index inside a .ttc; None uses the default
 
 # Panel colors, BGR. FULL and PARTIAL mark each rep's grade; ACCENT is the
-# displacement line and its playhead.
+# displacement line and its dot, PLAYHEAD the vertical line at the current frame.
 PANEL_BG = (26, 22, 20)          # #14161a
 PANEL_FG = (247, 244, 242)       # #f2f4f7
 PANEL_MUTED = (153, 145, 139)    # #8b9199
@@ -170,6 +170,7 @@ PANEL_GRID = (56, 48, 43)        # #2b3038
 PANEL_FULL = (102, 207, 81)      # #51cf66
 PANEL_PARTIAL = (107, 107, 255)  # #ff6b6b
 PANEL_ACCENT = (255, 160, 40)    # #28a0ff
+PANEL_PLAYHEAD = (153, 145, 139) # #8b9199
 
 # Credit lines, bottom-right of the panel: ("LABEL", "value") or a plain string.
 #   CREDIT = ["Jeremy Park"]
@@ -195,6 +196,8 @@ TIMELINE_COLORS = {
     "elbow":     (196, 61, 95),    # #5f3dc4, the graded mean elbow angle
     "clearance": (62, 138, 43),    # #2b8a3e, head above hands
     "cutoff":    (42, 42, 201),    # #c92a2a, what a full rep must reach
+    "label":     (150, 142, 134),  # #868e96, dead-hang labels and the uncalibrated floor
+    "onset":     (112, 100, 92),   # #5c6470, each rep's onset time
 }
 # None keeps matplotlib's white figure. A dict of "background", "text" and
 # "grid" colors (BGR) restyles it, e.g. dark to sit beside the video.

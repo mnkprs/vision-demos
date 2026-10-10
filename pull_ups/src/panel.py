@@ -6,8 +6,8 @@ once and copied per frame; fixed axes mean the curve fills in without rescaling.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields
 from functools import lru_cache
-from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -15,21 +15,29 @@ import numpy as np
 from .reps import rep_value
 from .text import resolve_font
 
-class Palette(NamedTuple):
-    """The panel's colors as ``"#rrggbb"``, from config's ``PANEL_*`` (BGR there)."""
+def hex_from_bgr(bgr) -> str:
+    """``(b, g, r)``, as config holds colors, -> ``"#rrggbb"``."""
+    return "#{:02x}{:02x}{:02x}".format(*tuple(bgr)[::-1])
+
+
+# The other vision-demos panels share one palette as constants here; pull_ups reads
+# it from config's PANEL_* instead, whose defaults are that same palette.
+@dataclass(frozen=True)
+class Palette:
+    """The panel's colors as ``"#rrggbb"``."""
 
     bg: str
     fg: str
     muted: str
     grid: str
-    full: str      # full range of motion
-    partial: str   # cut short
-    accent: str    # the displacement line and its playhead
+    full: str       # full range of motion
+    partial: str    # cut short
+    accent: str     # the displacement line and its dot
+    playhead: str   # the vertical line at the current frame
 
     @classmethod
-    def from_cfg(cls, cfg) -> "Palette":
-        return cls(*("#{:02x}{:02x}{:02x}".format(*getattr(cfg, f"PANEL_{name.upper()}")[::-1])
-                     for name in cls._fields))
+    def from_cfg(cls, cfg) -> Palette:
+        return cls(*(hex_from_bgr(getattr(cfg, f"PANEL_{f.name.upper()}")) for f in fields(cls)))
 
 
 def _rgb(color: str) -> tuple[int, int, int]:
@@ -261,7 +269,7 @@ class _Strip:
     def playhead(self, panel, k: int, scale: float) -> None:
         _, y0, _, y1 = self.box
         px = int(self.px[min(max(k - 1, 0), len(self.px) - 1)])
-        cv2.line(panel, (px, y0), (px, y1), _bgr(self.colors.muted), max(1, int(1.5 * scale)),
+        cv2.line(panel, (px, y0), (px, y1), _bgr(self.colors.playhead), max(1, int(1.5 * scale)),
                  cv2.LINE_AA)
 
     def dot(self, panel, frame: int, py: float, color: str, scale: float, r: float = 7) -> None:
