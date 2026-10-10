@@ -292,7 +292,9 @@ class Panel:
         rows_bottom = int(height * 0.915)
         n_rows = max(len(analysis.reps), 3)
         span = max(0, rows_bottom - self.y_rows)
-        self.row_gap = max(1, min(int(height * 0.06), span // n_rows))
+        # Never closer than a line of text; a long set shows its newest reps instead.
+        min_gap = int(cfg.PANEL_ROW_SIZE * s * 1.3)
+        self.row_gap = max(1, min_gap, min(int(height * 0.06), span // n_rows))
         self.room = max(1, span // self.row_gap)
 
         base = np.zeros((height, width, 3), np.uint8)
@@ -357,12 +359,17 @@ class Panel:
         _, y0, _, _ = strip.box
 
         # Finished reps: shaded by verdict, numbered at the peak, graded points dotted.
+        # A number that would touch the one before it is skipped, so dense reps stay legible.
         items = []
+        label_px, label_right = int(18 * s), -1
         for rep in done:
             c = self.verdict_color(rep)
             strip.shade(panel, rep.onset_frame, min(rep.end_frame, frame), c)
-            items.append((str(rep.number), (int(strip.px[min(rep.peak_frame, len(strip.px) - 1)]),
-                                            y0 + int(14 * s)), int(18 * s), _rgb(c), "mm"))
+            x = int(strip.px[min(rep.peak_frame, len(strip.px) - 1)])
+            half = _text_width(str(rep.number), label_px, self.font) // 2
+            if x - half > label_right:
+                items.append((str(rep.number), (x, y0 + int(14 * s)), label_px, _rgb(c), "mm"))
+                label_right = x + half + int(6 * s)
         strip.line(panel, self.height_py, k, ACCENT, thick + max(1, int(s)))
         strip.playhead(panel, k, s)
         for rep in done:
