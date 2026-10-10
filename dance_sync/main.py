@@ -39,6 +39,14 @@ report_console = Console(file=_report, width=100, no_color=True, highlight=False
                          emoji=False)
 
 
+def rel(path):
+    """Project-relative path for console output; absolute when outside the project."""
+    try:
+        return path.relative_to(cfg.PROJECT_DIR)
+    except ValueError:
+        return path
+
+
 def rule(step: int, title: str) -> None:
     console.rule(f"[bold cyan]{step}[/] {title}", align="left")
     report_console.rule(f"{step} {title}", align="left")
@@ -134,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
            else "  [yellow]no audio track[/]" if cfg.KEEP_AUDIO else "")
     )
     detail_kv({
-        "path": cfg.INPUT_VIDEO.relative_to(cfg.PROJECT_DIR),
+        "path": rel(cfg.INPUT_VIDEO),
         "size": f"{cfg.INPUT_VIDEO.stat().st_size / 1e6:.1f} MB",
         "codec": f"{src_info['codec']} ({src_info['pix_fmt']})",
         "stored": f"{src_info['width']}x{src_info['height']}",
@@ -160,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         seconds, cached = 0.0, True
         if path.is_file() and not cfg.FORCE_RECONVERT:
             detail(f"  [green]cache hit[/] ({label}) — "
-                   f"[dim]{path.relative_to(cfg.PROJECT_DIR)}[/]")
+                   f"[dim]{rel(path)}[/]")
         else:
             cached = False
             reason = "FORCE_RECONVERT" if path.is_file() else "no cached copy"
@@ -173,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             seconds = time.perf_counter() - t0
             detail(f"  done in {seconds:.1f}s -> "
-                   f"[dim]{path.relative_to(cfg.PROJECT_DIR)}[/]")
+                   f"[dim]{rel(path)}[/]")
         return path, video.inspect(path), seconds, cached
 
     # Two renditions, because they answer to different limits. The model caps at
@@ -572,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     encode_seconds = time.perf_counter() - t0
     raw.unlink(missing_ok=True)   # MPEG-4 Part 2 intermediate; no player wants it
-    say(f"  video  -> [dim]{out_video.relative_to(cfg.PROJECT_DIR)}[/] "
+    say(f"  video  -> [dim]{rel(out_video)}[/] "
                   f"({out_video.stat().st_size / 1e6:.1f} MB"
                   + (", audio copied from the source" if audio and cfg.AUDIO_CODEC == "copy"
                      else f", audio re-encoded to {cfg.AUDIO_CODEC}" if audio else ", silent")
@@ -800,7 +808,7 @@ def main(argv: list[str] | None = None) -> int:
 
     console.print()
     console.rule(f"[bold green]done[/] in {total:.1f}s", align="left")
-    console.print(f"  [bold]{run_dir.relative_to(cfg.PROJECT_DIR)}/[/]")
+    console.print(f"  [bold]{rel(run_dir)}/[/]")
     console.print("  [dim]"
                   + ", ".join(sorted(f.name for f in run_dir.iterdir() if f.is_file()))
                   + "[/]")
