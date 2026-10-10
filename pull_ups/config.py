@@ -151,6 +151,11 @@ ROM_CLEARANCE_TORSO_FRACTION = 0.18
 ROM_SAMPLE_FRAMES = 5
 
 # ── Side panel ───────────────────────────────────────────────────────────────
+# The clip on the left, the stats panel on the right: the same width as a
+# portrait clip, capped at 9:16 for a landscape one so the text still fits.
+# False writes the overlaid clip alone, at its own size (skeleton and elbow
+# arcs, nothing beside it); timeline.png and the JSON files are unchanged.
+SIDE_PANEL = True
 PANEL_HEADER_SIZE = 44     # px at a 720px-wide panel; scales with the output
 PANEL_LIVE_SIZE = 34       # the "Full ROM" line and the live elbow angles
 PANEL_ROW_SIZE = 26        # the per-rep rows

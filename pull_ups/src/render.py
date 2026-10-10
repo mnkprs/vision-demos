@@ -84,15 +84,18 @@ def _person_at(by_index: dict, i: int, hold: int):
 
 def render(info: VideoInfo, *, by_index, analysis, n_frames: int, fps: float, dst: Path,
            cfg, console) -> dict:
-    """Write the overlaid clip beside its panel.
+    """Write the overlaid clip, beside its panel when ``cfg.SIDE_PANEL`` is on.
 
     *n_frames* and *fps* are the inference clip's; frames are matched by index.
     """
-    # The panel is laid out for portrait, 9:16 at most. A landscape clip's width
-    # would make its width-scaled text and markers too tall for the frame.
-    panel_w = min(info.width, round(info.height * 9 / 16 / 2) * 2)
-    panel = Panel(analysis, n_frames, fps, panel_w, info.height, cfg=cfg)
-    out_w = info.width + panel_w
+    panel = None
+    out_w = info.width
+    if cfg.SIDE_PANEL:
+        # The panel is laid out for portrait, 9:16 at most. A landscape clip's width
+        # would make its width-scaled text and markers too tall for the frame.
+        panel_w = min(info.width, round(info.height * 9 / 16 / 2) * 2)
+        panel = Panel(analysis, n_frames, fps, panel_w, info.height, cfg=cfg)
+        out_w = info.width + panel_w
 
     edges, points = visible_parts(cfg.DRAW_FACE)
     scale = info.width / 720
@@ -132,7 +135,7 @@ def render(info: VideoInfo, *, by_index, analysis, n_frames: int, fps: float, ds
                                      color=arc_colors.get(i, cfg.ELBOW_ARC_COLOR))
                     posed += 1
 
-                writer.write(np.hstack([frame, panel.render(i)]))
+                writer.write(frame if panel is None else np.hstack([frame, panel.render(i)]))
                 written += 1
                 progress.update(task, advance=1)
     finally:
