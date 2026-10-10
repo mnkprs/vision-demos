@@ -159,6 +159,17 @@ PANEL_Y_LABEL = None       # likewise
 PANEL_FONT = "auto"        # "auto", "opencv" to force Hershey, or a font path
 PANEL_FONT_INDEX = None    # face index inside a .ttc; None uses the default
 
+# Panel colors, BGR. FULL and PARTIAL mark each rep's depth grade and the body
+# line; ACCENT is the per-rep line, the live dial short of full depth and the
+# depth bar.
+PANEL_BG = (26, 22, 20)          # #14161a
+PANEL_FG = (247, 244, 242)       # #f2f4f7
+PANEL_MUTED = (153, 145, 139)    # #8b9199
+PANEL_GRID = (56, 48, 43)        # #2b3038
+PANEL_FULL = (102, 207, 81)      # #51cf66
+PANEL_PARTIAL = (107, 107, 255)  # #ff6b6b
+PANEL_ACCENT = (255, 160, 40)    # #28a0ff
+
 # Credit lines, bottom-right of the export: ("LABEL", "value") or a plain string.
 #   CREDIT = ["Jeremy Park"]
 #   CREDIT = [("LI", "Jeremy Park, PhD"), ("X", "@jeremyparkphd")]
@@ -169,6 +180,24 @@ CREDIT_LINE_GAP = 6            # px between credit lines
 CREDIT_MARGIN = 25             # inset from the right and bottom edges
 CREDIT_OPACITY = 0.75          # 0-1; white, dialled back so it reads as a credit
 CREDIT_LABEL_OPACITY = 0.41    # the "LI:" / "X:" part, a shade dimmer
+
+# ── Timeline (displacement.png) ──────────────────────────────────────────────
+# Line and mark colors by role, BGR. "full" and "partial" mark each rep's grade.
+TIMELINE_COLORS = {
+    "full":     (62, 138, 43),     # #2b8a3e, full depth and a straight body line
+    "partial":  (42, 42, 201),     # #c92a2a, cut short or hips off the line
+    "line":     (246, 109, 47),    # #2f6df6, smoothed depth
+    "raw":      (214, 206, 201),   # #c9ced6
+    "interval": (171, 100, 24),    # #1864ab, each rep's bracket and its seconds
+    "trace":    (112, 100, 92),    # #5c6470, the elbow angle and the hips off line
+    "cutoff":   (62, 138, 43),     # #2b8a3e, the full-depth line
+    "zone":     (62, 138, 43),     # #2b8a3e, shading past full depth and the straight band
+    "zero":     (152, 143, 138),   # #8a8f98, the relative-zero lines
+    "ignored":  (152, 143, 138),   # #8a8f98, frames outside a plank
+}
+# None keeps matplotlib's white figure. A dict of "background", "text" and
+# "grid" colors (BGR) restyles it, e.g. dark to sit beside the video.
+TIMELINE_FIGURE = None
 
 # ── Output ───────────────────────────────────────────────────────────────────
 OUTPUT_DIR = DATA_DIR / "output"

@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
 
-from .panel import SidePanel
+from .panel import SidePanel, hex_from_bgr
 from .skeleton import KPT_NAMES, draw_hud, draw_person, visible_parts
 from .video import VideoInfo
 
@@ -137,7 +137,7 @@ def render(
     }
 
 
-def _shade_off_plank(ax, t, in_plank) -> None:
+def _shade_off_plank(ax, t, in_plank, color: str) -> None:
     """Grey out the frames the plank gate excluded, so a missing rep has a visible reason."""
     i = 0
     first = True
@@ -148,7 +148,7 @@ def _shade_off_plank(ax, t, in_plank) -> None:
         j = i
         while j < len(in_plank) and not in_plank[j]:
             j += 1
-        ax.axvspan(t[i], t[min(j, len(t) - 1)], color="#8a8f98", alpha=0.18, zorder=0,
+        ax.axvspan(t[i], t[min(j, len(t) - 1)], color=color, alpha=0.18, zorder=0,
                    label="not in a plank (ignored)" if first else None)
         first = False
         i = j
@@ -166,18 +166,41 @@ def plot_displacement(analysis, dst: Path, *, cfg, title: str = "") -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    with plt.rc_context(_figure_rc(cfg.TIMELINE_FIGURE)):
+        _plot_displacement(analysis, dst, cfg=cfg, title=title)
+
+
+def _figure_rc(figure) -> dict:
+    """matplotlib rc for ``cfg.TIMELINE_FIGURE``; empty (matplotlib's own look) for None."""
+    if not figure:
+        return {}
+    bg, text, grid = (hex_from_bgr(figure[k]) for k in ("background", "text", "grid"))
+    return {"figure.facecolor": bg, "axes.facecolor": bg, "savefig.facecolor": bg,
+            "text.color": text, "axes.labelcolor": text, "xtick.color": text,
+            "ytick.color": text, "axes.edgecolor": grid, "grid.color": grid}
+
+
+def _plot_displacement(analysis, dst: Path, *, cfg, title: str) -> None:
+    import matplotlib.pyplot as plt
+
+    # Colors by role, shared by every axis so a grade's color means the same everywhere.
+    c = {role: hex_from_bgr(bgr) for role, bgr in cfg.TIMELINE_COLORS.items()}
+    good, bad = c["full"], c["partial"]
+    # A dark figure's grid is its own color; a light one's is matplotlib's, faded.
+    grid_alpha = 1.0 if cfg.TIMELINE_FIGURE else 0.25
+
     t = analysis.times
     fig, (ax, ax2, ax3) = plt.subplots(
         3, 1, figsize=(13, 9), sharex=True,
         gridspec_kw={"height_ratios": [3, 1.4, 1.4]},
     )
 
-    ax.plot(t, analysis.top - analysis.raw, color="#c9ced6", lw=1,
+    ax.plot(t, analysis.top - analysis.raw, color=c["raw"], lw=1,
             label="raw (shoulders vs wrists)", zorder=1)
-    ax.plot(t, analysis.depth, color="#2f6df6", lw=2.2, label="smoothed", zorder=3)
-    ax.axhline(0, color="#8a8f98", ls="--", lw=1.2, zorder=2, label="relative zero (top)")
+    ax.plot(t, analysis.depth, color=c["line"], lw=2.2, label="smoothed", zorder=3)
+    ax.axhline(0, color=c["zero"], ls="--", lw=1.2, zorder=2, label="relative zero (top)")
     for a in (ax, ax2, ax3):
-        _shade_off_plank(a, t, analysis.in_plank)
+        _shade_off_plank(a, t, analysis.in_plank, c["ignored"])
 
     seen = analysis.depth[np.isfinite(analysis.depth)]
     deepest = float(np.max(seen)) if len(seen) else 1.0
@@ -187,7 +210,7 @@ def plot_displacement(analysis, dst: Path, *, cfg, title: str = "") -> None:
 
     for i, rep in enumerate(analysis.reps):
         a, b = rep.onset_time, rep.lockout_time
-        color = "#2b8a3e" if rep.full_depth else "#c92a2a"
+        color = good if rep.full_depth else bad
         ax.axvspan(a, b, color=color, alpha=0.10, zorder=0,
                    label="rep, onset to lockout (green full, red partial)" if i == 0 else None)
         ax.axvline(rep.bottom_time, color=color, ls=":", lw=1.1, alpha=0.65, zorder=2)
@@ -195,11 +218,11 @@ def plot_displacement(analysis, dst: Path, *, cfg, title: str = "") -> None:
         # The measured interval, drawn as an interval rather than implied by a
         # number floating near a bottom.
         ax.annotate("", xy=(b, bar), xytext=(a, bar),
-                    arrowprops=dict(arrowstyle="<|-|>", color="#1864ab", lw=1.6,
+                    arrowprops=dict(arrowstyle="<|-|>", color=c["interval"], lw=1.6,
                                     shrinkA=0, shrinkB=0))
         ax.text((a + b) / 2, bar + deepest * 0.025, f"{rep.down_seconds:.2f} + "
                 f"{rep.up_seconds:.2f}s", ha="center", va="top", fontsize=10,
-                fontweight="bold", color="#1864ab")
+                fontweight="bold", color=c["interval"])
 
         ax.plot(rep.bottom_time, rep.depth, "o", color=color, ms=8, zorder=4)
         ax.annotate(f"{rep.number}", (rep.bottom_time, rep.depth), textcoords="offset points",
@@ -209,36 +232,36 @@ def plot_displacement(analysis, dst: Path, *, cfg, title: str = "") -> None:
                     color=color)
 
     ax.set_ylabel("shoulder depth below the top\n(fraction of frame height)")
-    ax.grid(alpha=0.25)
+    ax.grid(alpha=grid_alpha)
     # Above the axes, not inside them: any in-plot corner eventually sits on a rep.
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.015), ncol=5, fontsize=9, frameon=False)
     ax.set_title(title or f"{analysis.count} reps", fontsize=13, fontweight="bold", pad=28)
 
     full = analysis.full_depth_degrees
-    ax2.plot(t, analysis.elbow, color="#5c6470", lw=1.4)
-    ax2.axhline(full, color="#2b8a3e", ls="--", lw=1.2)
+    ax2.plot(t, analysis.elbow, color=c["trace"], lw=1.4)
+    ax2.axhline(full, color=c["cutoff"], ls="--", lw=1.2)
     ax2.fill_between(t, full, analysis.elbow, where=analysis.elbow <= full,
-                     color="#2b8a3e", alpha=0.18)
+                     color=c["zone"], alpha=0.18)
     for rep in analysis.reps:
         if np.isfinite(rep.elbow_degrees):
             ax2.plot(rep.bottom_time, rep.elbow_degrees, "o", ms=6,
-                     color="#2b8a3e" if rep.full_depth else "#c92a2a")
+                     color=good if rep.full_depth else bad)
     ax2.set_ylabel(f"elbow angle (°)\n{analysis.elbow_side} arm")
-    ax2.grid(alpha=0.25)
+    ax2.grid(alpha=grid_alpha)
 
     tol = analysis.body_line_tolerance
-    ax3.plot(t, analysis.hip_line, color="#5c6470", lw=1.4)
-    ax3.axhspan(-tol, tol, color="#2b8a3e", alpha=0.10)
-    ax3.axhline(0, color="#8a8f98", ls="--", lw=1)
+    ax3.plot(t, analysis.hip_line, color=c["trace"], lw=1.4)
+    ax3.axhspan(-tol, tol, color=c["zone"], alpha=0.10)
+    ax3.axhline(0, color=c["zero"], ls="--", lw=1)
     for rep in analysis.reps:
         # Each rep's verdict, dotted where it was read: the furthest the hips
         # stayed off the line, anywhere in the rep or the rest after it.
         if np.isfinite(rep.hip_degrees):
             ax3.plot(rep.hip_time, rep.hip_degrees, "o", ms=6,
-                     color="#2b8a3e" if rep.body_line == "straight" else "#c92a2a")
+                     color=good if rep.body_line == "straight" else bad)
     ax3.set_ylabel(f"hips off line (°)\n+ sag, − hips high, to {analysis.hip_reference}")
     ax3.set_xlabel("time (s)")
-    ax3.grid(alpha=0.25)
+    ax3.grid(alpha=grid_alpha)
 
     fig.subplots_adjust(left=0.09, right=0.98, top=0.89, bottom=0.07, hspace=0.12)
     fig.savefig(dst, dpi=150)

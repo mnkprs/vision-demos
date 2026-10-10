@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import warnings
 from bisect import insort
+from dataclasses import dataclass, fields
 from functools import lru_cache
 
 import cv2
@@ -29,16 +30,30 @@ from .reps import (BODY_LINE_LABELS, EXTREME_WORDS, METRICS, body_line_note, ext
                    format_value, rep_value)
 from .text import resolve_font
 
-# One palette, shared with the other vision-demos panels. Hex is what matplotlib
-# wants; _rgb() converts for the text drawing, so the plot and the bands around
-# it cannot drift apart.
-BG = "#14161a"
-FG = "#f2f4f7"
-MUTED = "#8b9199"
-ACCENT = "#28a0ff"
-GRID = "#2b3038"
-FULL = "#51cf66"      # full depth
-PARTIAL = "#ff6b6b"   # cut short
+def hex_from_bgr(bgr) -> str:
+    """``(b, g, r)``, as config holds colors, -> ``"#rrggbb"``."""
+    return "#{:02x}{:02x}{:02x}".format(*tuple(bgr)[::-1])
+
+
+# The palette shared with the other vision-demos panels, read from config's
+# PANEL_* (whose defaults are that palette), as in pull_ups. Hex is what
+# matplotlib wants; _rgb() converts for the text drawing, so the plot and the
+# bands around it cannot drift apart.
+@dataclass(frozen=True)
+class Palette:
+    """The panel's colors as ``"#rrggbb"``."""
+
+    bg: str
+    fg: str
+    muted: str
+    grid: str
+    full: str       # full depth, a straight body line
+    partial: str    # cut short, hips off the line
+    accent: str     # the per-rep line, the live dial short of depth, the depth bar
+
+    @classmethod
+    def from_cfg(cls, cfg) -> Palette:
+        return cls(*(hex_from_bgr(getattr(cfg, f"PANEL_{f.name.upper()}")) for f in fields(cls)))
 
 
 def _rgb(color: str) -> tuple[int, int, int]:
@@ -62,11 +77,11 @@ def _plot_font(font):
         return None
 
 
-def _grade_color(rep) -> str:
-    return FULL if rep.full_depth else PARTIAL
+def _grade_color(rep, c: Palette) -> str:
+    return c.full if rep.full_depth else c.partial
 
 
-def _verdict(reps, metric: str) -> list[tuple[str, tuple[int, int, int]]]:
+def _verdict(reps, metric: str, c: Palette) -> list[tuple[str, tuple[int, int, int]]]:
     """The closing read: the best and worst rep on the graph, then the body line.
 
     Best and worst are colored by their own grade, like the dots they name, so
@@ -77,24 +92,25 @@ def _verdict(reps, metric: str) -> list[tuple[str, tuple[int, int, int]]]:
     best_word, worst_word = (w.capitalize() for w in EXTREME_WORDS[metric])
 
     lines = [(f"{best_word}: rep {best_i + 1} ({format_value(values[best_i], metric)})",
-              _rgb(_grade_color(reps[best_i])))]
+              _rgb(_grade_color(reps[best_i], c)))]
     if len(reps) > 1 and values[worst_i] - values[best_i] > 1e-9:
         lines.append((f"{worst_word}: rep {worst_i + 1} "
                       f"({format_value(values[worst_i], metric)})",
-                      _rgb(_grade_color(reps[worst_i]))))
+                      _rgb(_grade_color(reps[worst_i], c))))
     else:
-        lines.append(("even across the set", _rgb(MUTED)))
+        lines.append(("even across the set", _rgb(c.muted)))
 
     note = body_line_note(reps, compact=True)
     flagged = any(r.body_line in ("sagging", "piked") for r in reps)
-    lines.append((note, _rgb(PARTIAL if flagged else MUTED)))
+    lines.append((note, _rgb(c.partial if flagged else c.muted)))
     return lines
 
 
 def _plot_image(analysis, shown: int, width: int, height: int, *, progressive: bool,
                 font=None, y_ticks: int = 4, metric: str = "depth",
-                title: str = "", ylabel: str = "", scale: float = 1.0):
+                title: str = "", ylabel: str = "", scale: float = 1.0, colors: Palette):
     """Render the per-rep scatter to a BGR array of exactly (height, width)."""
+    c = colors
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -119,8 +135,8 @@ def _plot_image(analysis, shown: int, width: int, height: int, *, progressive: b
     # fixed dpi leaves the labels their 720px size on a 1662px panel. Scaling
     # the dpi makes one point the same fraction of the panel at any size.
     dpi = max(30.0, 100.0 * scale)
-    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor=BG)
-    ax = fig.add_subplot(111, facecolor=BG)
+    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor=c.bg)
+    ax = fig.add_subplot(111, facecolor=c.bg)
 
     reps = analysis.reps
     n = len(reps)
@@ -144,11 +160,11 @@ def _plot_image(analysis, shown: int, width: int, height: int, *, progressive: b
         ax.yaxis.set_major_locator(MaxNLocator(nbins=y_ticks, prune=None))
 
     if threshold is not None and n:
-        ax.axhline(threshold, color=MUTED, ls="--", lw=1.4, alpha=0.8, zorder=1)
+        ax.axhline(threshold, color=c.muted, ls="--", lw=1.4, alpha=0.8, zorder=1)
         # Above the axes: a label beside the line would sit on a rep sooner or later.
         ax.annotate(f"- - full depth ≤ {threshold:.0f}°", (1, 1), xycoords="axes fraction",
                     xytext=(0, 5), textcoords="offset points", ha="right", va="bottom",
-                    color=MUTED, **f(14))
+                    color=c.muted, **f(14))
 
     k = n if not progressive else max(0, min(shown, n))
     complete = k == n and n > 0
@@ -157,17 +173,17 @@ def _plot_image(analysis, shown: int, width: int, height: int, *, progressive: b
 
     if k:
         ok = np.isfinite(ys[:k])
-        ax.plot(xs[:k][ok], ys[:k][ok], color=ACCENT, lw=2.4, alpha=0.55, zorder=2)
+        ax.plot(xs[:k][ok], ys[:k][ok], color=c.accent, lw=2.4, alpha=0.55, zorder=2)
         ax.scatter(xs[:k][ok], ys[:k][ok], s=200, zorder=3,
-                   c=[_grade_color(r) for r, keep in zip(reps[:k], ok) if keep],
-                   edgecolors=BG, linewidths=2)
+                   c=[_grade_color(r, c) for r, keep in zip(reps[:k], ok) if keep],
+                   edgecolors=c.bg, linewidths=2)
 
         best_word, worst_word = EXTREME_WORDS[metric]
         for j, (x, y) in enumerate(zip(xs[:k], ys[:k])):
             if not np.isfinite(y):
                 continue
             ax.annotate(format_value(y, metric), (x, y), textcoords="offset points",
-                        xytext=(0, 17), ha="center", color=FG, **f(17))
+                        xytext=(0, 17), ha="center", color=c.fg, **f(17))
             # Best and worst only mean something once the set is over; during
             # the reveal "deepest so far" would move from dot to dot and mislead.
             # The best sits below its dot and the worst above its number, the
@@ -176,12 +192,12 @@ def _plot_image(analysis, shown: int, width: int, height: int, *, progressive: b
                 ax.annotate(best_word if j == best_i else worst_word, (x, y),
                             textcoords="offset points",
                             xytext=(0, -30) if j == best_i else (0, 36), ha="center",
-                            color=MUTED, **f(15))
+                            color=c.muted, **f(15))
 
-    ax.set_title(title, color=FG, pad=26 if threshold is not None else 20, **f(26))
-    ax.set_xlabel("rep", color=MUTED, **f(18))
-    ax.set_ylabel(ylabel, color=MUTED, **f(18))
-    ax.tick_params(colors=MUTED, labelsize=16)
+    ax.set_title(title, color=c.fg, pad=26 if threshold is not None else 20, **f(26))
+    ax.set_xlabel("rep", color=c.muted, **f(18))
+    ax.set_ylabel(ylabel, color=c.muted, **f(18))
+    ax.tick_params(colors=c.muted, labelsize=16)
     if fp:
         ticks = fp.copy()
         ticks.set_size(16)
@@ -190,7 +206,7 @@ def _plot_image(analysis, shown: int, width: int, height: int, *, progressive: b
     ax.grid(False)
     ax.set_box_aspect(1)
     for spine in ax.spines.values():
-        spine.set_color(GRID)
+        spine.set_color(c.grid)
 
     fig.subplots_adjust(left=0.22, right=0.96, top=0.86, bottom=0.13)
     fig.canvas.draw()
@@ -406,6 +422,7 @@ def _layout(width: int, height: int, *, cfg) -> dict:
 def build_panels(analysis, width: int, height: int, *, cfg) -> tuple[list, dict]:
     """One panel image per possible rep count, index 0..N, and where the live band goes."""
     font = resolve_font(cfg.PANEL_FONT, cfg.PANEL_FONT_INDEX)
+    c = Palette.from_cfg(cfg)
     metric = cfg.REP_METRIC
     _, _, _, default_title, default_ylabel = METRICS[metric]
 
@@ -420,7 +437,7 @@ def build_panels(analysis, width: int, height: int, *, cfg) -> tuple[list, dict]
             analysis, shown, side, side,
             progressive=cfg.PANEL_PROGRESSIVE, font=font, y_ticks=cfg.PANEL_Y_TICKS,
             metric=metric, title=cfg.PANEL_GRAPH_TITLE or default_title,
-            ylabel=cfg.PANEL_Y_LABEL or default_ylabel, scale=width / 720)
+            ylabel=cfg.PANEL_Y_LABEL or default_ylabel, scale=width / 720, colors=c)
 
     # The figure's own padding above the title is not a band, so the graph is
     # placed by where its title actually starts, measured on the first render.
@@ -436,7 +453,7 @@ def build_panels(analysis, width: int, height: int, *, cfg) -> tuple[list, dict]
     panels = []
     for shown in range(len(analysis.reps) + 1):
         panel = np.zeros((height, width, 3), np.uint8)
-        panel[:] = _rgb(BG)[::-1]
+        panel[:] = _rgb(c.bg)[::-1]
 
         image, box = first if shown == 0 else plot(shown)
         panel[y0:y0 + side, x0:x0 + side] = image
@@ -447,15 +464,15 @@ def build_panels(analysis, width: int, height: int, *, cfg) -> tuple[list, dict]
 
         # Band 1: the headline numbers. The tally is green while every rep so
         # far reached depth, red once one did not.
-        tally = MUTED if not done else FULL if full == len(done) else PARTIAL
+        tally = c.muted if not done else c.full if full == len(done) else c.partial
         _draw_lines(panel[head_top:head_top + lay["head"]], [
-            (f"{cfg.REP_LABEL}: {len(done)}", _rgb(FG)),
+            (f"{cfg.REP_LABEL}: {len(done)}", _rgb(c.fg)),
             (f"{cfg.PANEL_FULL_LABEL}: {full} / {len(done)}" if done
              else f"{cfg.PANEL_FULL_LABEL}: —", _rgb(tally)),
             (f"{cfg.PANEL_AVG_LABEL}: {np.mean(times):.2f}s" if times
-             else f"{cfg.PANEL_AVG_LABEL}: —", _rgb(MUTED)),
+             else f"{cfg.PANEL_AVG_LABEL}: —", _rgb(c.muted)),
             (f"{cfg.PANEL_LAST_LABEL}: {times[-1]:.2f}s" if times
-             else f"{cfg.PANEL_LAST_LABEL}: —", _rgb(MUTED)),
+             else f"{cfg.PANEL_LAST_LABEL}: —", _rgb(c.muted)),
         ], font, px=int(cfg.PANEL_HEADER_SIZE * width / 720), x=left,
            gap=cfg.PANEL_HEADER_LINE_GAP, max_width=text_width)
 
@@ -463,7 +480,7 @@ def build_panels(analysis, width: int, height: int, *, cfg) -> tuple[list, dict]
 
         # Band 4: the closing note, once the set is actually over.
         if shown == len(analysis.reps) and analysis.reps:
-            _draw_lines(panel[note_band:height - gap], _verdict(analysis.reps, metric), font,
+            _draw_lines(panel[note_band:height - gap], _verdict(analysis.reps, metric, c), font,
                         px=int(cfg.PANEL_NOTE_SIZE * width / 720), x=left,
                         gap=cfg.PANEL_NOTE_LINE_GAP, max_width=text_width)
 
@@ -602,6 +619,7 @@ class LiveBlock:
     def __init__(self, analysis, n_frames: int, fps: float, width: int, *, top: int,
                  height: int, left: int, right: int, cfg, font):
         self.cfg, self.font = cfg, font
+        self.colors = Palette.from_cfg(cfg)
         self.top, self.h, self.left, self.right = top, height, left, right
         self.w = width
         self.u = u = width / 720
@@ -696,39 +714,39 @@ class LiveBlock:
 
     def _background(self) -> np.ndarray:
         """What never moves: the depth caption, the dial's track and 90° mark, the bar's track."""
-        cfg, s = self.cfg, self._s
+        cfg, s, c = self.cfg, self._s, self.colors
         band = np.zeros((self.h, self.w, 3), np.uint8)
-        band[:] = _rgb(BG)[::-1]
+        band[:] = _rgb(c.bg)[::-1]
 
         (cx, cy), r = self._gauge_center(), s(self._GAUGE_R)
         thick = s(10)
         # The dial is the elbow itself: the upper arm points right from the center,
         # the forearm sweeps from straight (left, 180°) toward the shoulder.
-        cv2.ellipse(band, (cx, cy), (r, r), 0, 180, 360, _rgb(GRID)[::-1], thick, cv2.LINE_AA)
+        cv2.ellipse(band, (cx, cy), (r, r), 0, 180, 360, _rgb(c.grid)[::-1], thick, cv2.LINE_AA)
         mark = np.radians(cfg.FULL_DEPTH_ELBOW_DEG)
         inner, outer = r - thick, r + thick
         p0 = (int(cx + inner * np.cos(np.pi - mark)), int(cy - inner * np.sin(np.pi - mark)))
         p1 = (int(cx + outer * np.cos(np.pi - mark)), int(cy - outer * np.sin(np.pi - mark)))
-        cv2.line(band, p0, p1, _rgb(FG)[::-1], max(1, s(3)), cv2.LINE_AA)
+        cv2.line(band, p0, p1, _rgb(c.fg)[::-1], max(1, s(3)), cv2.LINE_AA)
 
         x0, x1 = self.left, self.right
         y0 = s(self._BAR_Y)
-        cv2.rectangle(band, (x0, y0), (x1, y0 + s(self._BAR_H)), _rgb(GRID)[::-1], -1)
+        cv2.rectangle(band, (x0, y0), (x1, y0 + s(self._BAR_H)), _rgb(c.grid)[::-1], -1)
 
         label = (int(cx + (outer + s(4)) * np.cos(np.pi - mark)),
                  int(cy - (outer + s(4)) * np.sin(np.pi - mark)))
         _text(band, [
-            (f"{cfg.FULL_DEPTH_ELBOW_DEG:.0f}°", label, s(16), _rgb(MUTED), "mb"),
+            (f"{cfg.FULL_DEPTH_ELBOW_DEG:.0f}°", label, s(16), _rgb(c.muted), "mb"),
             (cfg.PANEL_LIVE_LINE_LABEL, (x0, s(self._LINE_Y)),
-             s(cfg.PANEL_LIVE_CAPTION_SIZE), _rgb(MUTED), "ls"),
+             s(cfg.PANEL_LIVE_CAPTION_SIZE), _rgb(c.muted), "ls"),
             (cfg.PANEL_LIVE_DEPTH_LABEL, (x0, s(self._BAR_LABEL_Y)),
-             s(cfg.PANEL_LIVE_CAPTION_SIZE), _rgb(MUTED), "ls"),
+             s(cfg.PANEL_LIVE_CAPTION_SIZE), _rgb(c.muted), "ls"),
         ], self.font)
         return band
 
     def draw(self, frame: int) -> np.ndarray:
         """The band for *frame*, ready to paste at ``self.top``."""
-        cfg, s = self.cfg, self._s
+        cfg, s, c = self.cfg, self._s, self.colors
         i = int(np.clip(frame, 0, len(self.phase) - 1))
         band = self.base.copy()
         items = []
@@ -736,13 +754,14 @@ class LiveBlock:
         # Elbow: the number, and the dial filled from straight to where the arm is.
         angle = self.elbow[i]
         deep = bool(np.isfinite(angle) and round(angle) <= cfg.FULL_DEPTH_ELBOW_DEG)
-        color = FULL if deep else ACCENT
+        color = c.full if deep else c.accent
         items.append((f"{cfg.PANEL_LIVE_ELBOW_LABEL}, {self.sides[self.arm[i]]} arm",
                       (self.left, s(self._CAPTION_Y)), s(cfg.PANEL_LIVE_CAPTION_SIZE),
-                      _rgb(MUTED), "lt"))
+                      _rgb(c.muted), "lt"))
         items.append((f"{angle:.0f}°" if np.isfinite(angle) else "—",
                       (self.left, s(self._NUMBER_Y)), s(cfg.PANEL_LIVE_NUMBER_SIZE),
-                      _rgb(FULL if deep else FG) if np.isfinite(angle) else _rgb(MUTED), "ls"))
+                      _rgb(c.full if deep else c.fg) if np.isfinite(angle) else _rgb(c.muted),
+                      "ls"))
         if np.isfinite(angle):
             (cx, cy), r = self._gauge_center(), s(self._GAUGE_R)
             reach = float(np.clip(angle, 0, 180))
@@ -752,12 +771,12 @@ class LiveBlock:
         # Phase and the rep timer, one line: what is happening, and for how long.
         phase = self.phase[i]
         items.append((PHASES[phase], (self.left, s(self._PHASE_Y)), s(cfg.PANEL_LIVE_SIZE),
-                      _rgb(MUTED if phase in (_NONE, _REST) else FG), "ls"))
+                      _rgb(c.muted if phase in (_NONE, _REST) else c.fg), "ls"))
         t = self.timer[i]
         timer = (f"{cfg.PANEL_LIVE_TIMER_LABEL} {self.rep_number[i]}: {t:.2f}s"
                  if np.isfinite(t) else f"{cfg.PANEL_LIVE_TIMER_LABEL}: —")
         items.append((timer, (self.right, s(self._PHASE_Y)), s(cfg.PANEL_LIVE_SIZE),
-                      _rgb(FG if self.running[i] else MUTED), "rs"))
+                      _rgb(c.fg if self.running[i] else c.muted), "rs"))
 
         # Body line, colored like the grades: green straight, red off the line.
         state, dev = self.line_state[i], self.line[i]
@@ -766,8 +785,8 @@ class LiveBlock:
             verdict += f" {abs(dev):.0f}°"
         items.append(("—" if state == _LINE_NONE else verdict,
                       (self.right, s(self._LINE_Y)), s(cfg.PANEL_LIVE_LINE_SIZE),
-                      _rgb(MUTED if state == _LINE_NONE else
-                           FULL if state == _LINE_STRAIGHT else PARTIAL), "rs"))
+                      _rgb(c.muted if state == _LINE_NONE else
+                           c.full if state == _LINE_STRAIGHT else c.partial), "rs"))
 
         # Depth: filled from the top plateau (empty) toward the hands (full).
         share = self.depth[i]
@@ -776,10 +795,10 @@ class LiveBlock:
             x1 = self.left + int(round(share * (self.right - self.left)))
             if x1 > self.left:
                 cv2.rectangle(band, (self.left, y0), (x1, y0 + s(self._BAR_H)),
-                              _rgb(ACCENT)[::-1], -1)
+                              _rgb(c.accent)[::-1], -1)
         items.append((f"{share * 100:.0f}%" if np.isfinite(share) else "—",
                       (self.right, s(self._BAR_LABEL_Y)), s(cfg.PANEL_LIVE_CAPTION_SIZE),
-                      _rgb(FG if np.isfinite(share) else MUTED), "rs"))
+                      _rgb(c.fg if np.isfinite(share) else c.muted), "rs"))
 
         _text(band, items, self.font)
         return band
