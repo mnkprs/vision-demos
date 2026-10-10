@@ -198,6 +198,8 @@ TIMELINE_COLORS = {
 # None keeps matplotlib's white figure. A dict of "background", "text" and
 # "grid" colors (BGR) restyles it, e.g. dark to sit beside the video.
 TIMELINE_FIGURE = None
+# The legend's entry for the rep spans; it names the "full" and "partial" colors.
+TIMELINE_REP_LABEL = "rep, onset to lockout (green full, red partial)"
 
 # ── Output ───────────────────────────────────────────────────────────────────
 OUTPUT_DIR = DATA_DIR / "output"

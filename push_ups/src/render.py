@@ -212,7 +212,7 @@ def _plot_displacement(analysis, dst: Path, *, cfg, title: str) -> None:
         a, b = rep.onset_time, rep.lockout_time
         color = good if rep.full_depth else bad
         ax.axvspan(a, b, color=color, alpha=0.10, zorder=0,
-                   label="rep, onset to lockout (green full, red partial)" if i == 0 else None)
+                   label=cfg.TIMELINE_REP_LABEL if i == 0 else None)
         ax.axvline(rep.bottom_time, color=color, ls=":", lw=1.1, alpha=0.65, zorder=2)
 
         # The measured interval, drawn as an interval rather than implied by a
