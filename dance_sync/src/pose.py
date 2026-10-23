@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from .skeleton import KPT_NAMES
+from .video import file_sha256
 
 CONTENT_OBJECT_KPTS = "vid.pose.kpts"
 
@@ -136,15 +137,13 @@ def cache_path(video: Path, cache_dir: Path, *, model: str, extra_body: dict) ->
 
     Keyed on the converted video's identity *and* every field that shapes the
     result, so a cache hit can only mean "same clip, same model, same request".
-    Changing `video_fps`, the model, or re-converting the source all produce a
-    different path rather than silently reusing stale poses.
+    Changing `video_fps`, the model, or the converted video's bytes all produce
+    a different path rather than silently reusing stale poses.
     """
     stat = video.stat()
     key = json.dumps(
         {
-            "video": video.name,
-            "size": stat.st_size,
-            "mtime_ns": stat.st_mtime_ns,
+            "sha256": file_sha256(video, stat.st_size, stat.st_mtime_ns),
             "model": model,
             "extra_body": extra_body,
             "contract": CONTRACT,

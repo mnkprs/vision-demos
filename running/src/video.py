@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import subprocess
@@ -63,6 +64,13 @@ def probe_source(path: Path) -> dict:
     }
 
 
+@functools.lru_cache(maxsize=None)
+def file_sha256(path: Path, size: int, mtime_ns: int) -> str:
+    """sha256 of *path*, read in chunks and once per run (*size* and *mtime_ns* spot a rewrite)."""
+    with path.open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
 def cache_path(src: Path, cache_dir: Path, *, target_height, trim_seconds, crf) -> Path:
     """Deterministic name for the converted MP4.
 
@@ -73,9 +81,8 @@ def cache_path(src: Path, cache_dir: Path, *, target_height, trim_seconds, crf) 
     stat = src.stat()
     key = json.dumps(
         {
-            "name": src.name,
-            "size": stat.st_size,
-            "mtime_ns": stat.st_mtime_ns,
+            # The bytes, not the path or mtime: a copy of the clip elsewhere reuses this.
+            "sha256": file_sha256(src, stat.st_size, stat.st_mtime_ns),
             "target_height": target_height,
             "trim_seconds": trim_seconds,
             "crf": crf,
@@ -83,7 +90,8 @@ def cache_path(src: Path, cache_dir: Path, *, target_height, trim_seconds, crf) 
         sort_keys=True,
     )
     digest = hashlib.sha256(key.encode()).hexdigest()[:12]
-    return cache_dir / f"{src.stem}.{digest}.mp4"
+    # Not the source's name either: the same bytes under another name reuse it.
+    return cache_dir / f"clip.{digest}.mp4"
 
 
 def convert(

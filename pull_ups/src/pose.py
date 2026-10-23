@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .skeleton import KPT_NAMES
+from .video import file_sha256
 
 CONTENT_OBJECT_KPTS = "vid.pose.kpts"
 
@@ -111,9 +112,7 @@ def cache_path(video: Path, cache_dir: Path, *, model: str, extra_body: dict) ->
     stat = video.stat()
     key = json.dumps(
         {
-            "video": video.name,
-            "size": stat.st_size,
-            "mtime_ns": stat.st_mtime_ns,
+            "sha256": file_sha256(video, stat.st_size, stat.st_mtime_ns),
             "model": model,
             "extra_body": extra_body,
             "contract": CONTRACT,

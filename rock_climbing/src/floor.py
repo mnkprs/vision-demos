@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 
 from .holds import FrameMasks, decode_label_map, instance_mask
+from .video import file_sha256
 
 
 class Floor:
@@ -263,7 +264,7 @@ def cache_path(video: Path, cache_dir: Path, *, model: str, prompt: str,
                settings: dict) -> Path:
     stat = video.stat()
     key = json.dumps({
-        "video": video.name, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
+        "sha256": file_sha256(video, stat.st_size, stat.st_mtime_ns),
         "model": model, "prompt": prompt, "settings": settings,
     }, sort_keys=True)
     return cache_dir / f"floor.{hashlib.sha256(key.encode()).hexdigest()[:12]}.json"

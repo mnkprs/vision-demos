@@ -22,6 +22,8 @@ import cv2
 import numpy as np
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
 
+from .video import file_sha256
+
 QUESTION_ID = "back"
 
 
@@ -149,7 +151,9 @@ def cache_path(mp4: Path, cache_dir: Path, *, settings: dict, crop_source: str |
                ) -> Path:
     """Keyed on the converted clip, the question *and* where the crops came from,
     so an edited prompt or a re-run pose never reuses a stale answer."""
-    key = json.dumps({"video": mp4.name, "crop_source": crop_source, **settings}, sort_keys=True)
+    stat = mp4.stat()
+    key = json.dumps({"sha256": file_sha256(mp4, stat.st_size, stat.st_mtime_ns),
+                      "crop_source": crop_source, **settings}, sort_keys=True)
     return cache_dir / f"reads.{hashlib.sha256(key.encode()).hexdigest()[:12]}.json"
 
 

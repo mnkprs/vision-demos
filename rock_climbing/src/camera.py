@@ -71,6 +71,8 @@ import cv2
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
+from .video import file_sha256
+
 # Bumped when the stored shape changes, so an old cache misses rather than
 # loading into a reader that no longer understands it.
 CONTRACT = "camera-homography-v1"
@@ -520,9 +522,8 @@ def _extent(matrices: np.ndarray, frame_size: tuple[int, int], scale: float,
 
 def cache_path(video: Path, cache_dir: Path, *, settings: dict) -> Path:
     stat = video.stat()
-    key = json.dumps({"video": video.name, "size": stat.st_size,
-                      "mtime_ns": stat.st_mtime_ns, "settings": settings,
-                      "contract": CONTRACT}, sort_keys=True)
+    key = json.dumps({"sha256": file_sha256(video, stat.st_size, stat.st_mtime_ns),
+                      "settings": settings, "contract": CONTRACT}, sort_keys=True)
     return cache_dir / f"camera.{hashlib.sha256(key.encode()).hexdigest()[:12]}.npz"
 
 
